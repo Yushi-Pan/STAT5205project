@@ -1,0 +1,474 @@
+---
+title: "5205project"
+author: "Yushi Pan, Yanran Qiu, Chuanchuan Liu, Jingbin Cao"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Part I
+
+## load data
+
+```{r}
+df <- read.csv("BIKE DETAILS.csv", as.is=TRUE)
+head(df)
+```
+
+
+## take a look at the dataset and clean the data
+
+```{r}
+summary(df)
+```
+
+
+Since there are 435 NA's in ex_showroom_price, we will just remove this column. We will also remove name column.
+
+```{r}
+df$name <- NULL
+df$ex_showroom_price <- NULL
+head(df)
+```
+
+## Visualize data
+
+```{r}
+library(ggplot2)
+ggplot(data=df) + 
+  geom_bar(mapping=aes(seller_type,fill=seller_type))
+```
+
+
+```{r}
+ggplot(data=df) + 
+  geom_bar(mapping=aes(owner, fill=owner))
+```
+
+
+## Explore the relationships between independent variables and dependent variable using plots
+
+### (1) km driven vs. selling price
+
+```{r}
+plot(df$km_driven, df$selling_price, 
+     xlab="km driven", ylab="selling price", main="km.driven vs. selling price") 
+```
+
+### (2) year vs. selling price
+
+```{r}
+plot(df$year, df$selling_price, 
+     xlab="year", ylab="selling price", main="year vs. selling price") 
+```
+
+### (3) seller type vs. selling price
+
+```{r}
+ggplot(data=df) + 
+  geom_boxplot(mapping=aes(x=seller_type, y=selling_price, fill=seller_type)) +
+  labs(title = "seller_type vs. selling price")
+```
+
+### (4) owner vs. selling price
+
+```{r}
+ggplot(data=df) + 
+  geom_boxplot(mapping=aes(x=owner, y=selling_price, fill=owner)) +
+  labs(title = "owner vs. selling price")
+```
+
+## Feature Encoding
+
+```{r}
+df$seller_type <- as.factor(df$seller_type)
+df$owner <- as.factor(df$owner)
+```
+
+
+## pairwise scatter plot for quantitative variables
+
+```{r}
+pairs(df, pch=20, cex=0.5, lower.panel=NULL)
+```
+
+
+Now we divide the dataset into training and testing datasets, so that we can build the model by fitting the training data and then predict on the testing data.
+
+
+```{r}
+set.seed(123)
+train_index <- sample(1:nrow(df), 0.7*nrow(df))
+test_index <- setdiff(1:nrow(df), train_index)
+train <- df[train_index,]
+test <- df[test_index,]
+
+nrow(train)
+nrow(test)
+```
+
+
+
+```{r}
+model <- lm(selling_price~., data=df)
+plot(model)
+```
+
+# Part II
+
+## Model selection
+
+### Best subset regression
+
+Select the subset of predictors that do the best at meeting some well-defined objective criterion. To be specific, we need to find the best subset of predictors having the largest adjusted R2 value or the smallest MSE, Mallow's Cp, SBIC, SBC, or AIC. The best subset selected is (year, owner, km_driven).
+
+```{r}
+library(olsrr)
+model <- lm(selling_price~., data=train)
+best_subset <- ols_step_best_subset(model)
+plot(best_subset)
+best_subset
+```
+
+### Stepwise AIC regression
+
+Build regression model from a set of candidate predictor variables by entering/removing predictors based on AIC, in a stepwise manner until there is no variable left to enter any more.  
+
+#### Forward selection
+
+The subset selected is (year, owner, km_driven).
+ 
+```{r}
+step_aic_forward <- ols_step_forward_aic(model, details=FALSE)
+step_aic_forward
+plot(step_aic_forward)
+```
+
+#### Backward selection
+
+The subset selected is (year, owner, km_driven).
+
+```{r}
+step_aic_backward <- ols_step_backward_aic(model, details = FALSE)
+step_aic_backward
+plot(step_aic_backward)
+```
+
+#### Both direction selection
+
+The subset selected is (year, owner, km_driven).
+
+```{r}
+step_aic_both <- ols_step_both_aic(model, details = FALSE)
+step_aic_both
+plot(step_aic_both)
+```
+
+### Stepwise P-value regression
+
+#### Forward selection
+
+The subset selected is (year, owner, km_driven).
+
+```{r}
+step_p_forward <- ols_step_forward_p(model, details=FALSE)
+step_p_forward
+plot(step_p_forward)
+```
+
+#### Backward selection
+
+The subset selected is (year, owner, km_driven).
+
+```{r}
+step_p_backward <- ols_step_backward_p(model, details = FALSE)
+step_p_backward
+plot(step_p_backward)
+```
+
+#### Both direction selection
+
+The subset selected is (year, owner, km_driven).
+
+```{r}
+step_p_both <- ols_step_both_p(model, details = FALSE)
+step_p_both
+plot(step_p_both)
+```
+
+#### Conclusion: The model selected includes year, owner, and km_driven as predictor variables. All methods applied above agree with this result.
+
+## Data transformation
+
+### Box-Cox transformation
+
+Use Box-Cox transformation to determine the most appropriate transformation of the response for correcting skewness of the distributions of error terms, unequal error variances, and nonlinearity of the regression function.
+
+```{r}
+library(MASS)
+attach(train)
+b <- boxcox(selling_price~year+owner+km_driven)
+lik <- b$y
+bc <- cbind(b$x, b$y)
+sorted <- bc[order(-lik),]
+head(sorted, 5)
+```
+
+The lambda value for the maximum log likelihood for obtaining minimum SSE is -0.18. 
+
+```{r}
+train$selling_price <- (train$selling_price)^-0.18
+model <- lm(selling_price~year+owner+km_driven, data=train)
+plot(model)
+```
+
+
+# Part III: Model Check
+
+## Check the summary of the model
+
+We need to check if the t-value and F-value are statistically significant. 
+
+```{r}
+model <- lm(selling_price~year+owner+km_driven, data=train)
+summary(model)
+```
+
+Here, since all of the p-value are smaller than alpha=0.05 (except the owner2nd owner), all of the t-value are statistically significant (except the owner2nd owner). 
+
+```{r}
+anova(model)
+```
+
+Here, since all of the p-value are smaller than alpha=0.05, all of the F-value are statistically significant. 
+
+## Calculate the residuals 
+
+```{r}
+e = resid(model)
+head(e)
+```
+
+Here, the residuals in the first six rows are displayed. 
+
+## Check residuals and assumptions considered in linear regression
+
+We will check the following assumptions of the linear regression:
+
++ assumption - linearity
++ assumption - constancy of error variance
++ assumption - independence of error terms
++ assumption - normality of error terms
++ assumption - absence of outliers
+
+### 1. residual plot
+
++ residual vs fitted value
+
+```{r}
+expected_price=model$fitted
+plot(expected_price, e, main="residual vs expected price", xlab="expected price", ylab="residual")
+abline(h=0, lty=2)
+```
+
++ residual vs predictor variables
+
+```{r}
+plot(year, e, main="residual vs year", xlab="year", ylab="residual")
+abline(h=0, lty=2)
+plot(year, abs(e), main="absolute residual vs year", xlab="year", ylab="absolute residual")
+```
+
+```{r}
+plot(owner, e, main="residual vs owner", xlab="owner", ylab="residual")
+abline(h=0, lty=2)
+plot(owner, abs(e), main="absolute residual vs owner", xlab="owner", ylab="absolute residual")
+```
+
+```{r}
+plot(km_driven, e, main="residual vs km_driven", xlab="km_driven", ylab="residual")
+abline(h=0, lty=2)
+plot(km_driven, abs(e), main="absolute residual vs km_driven", xlab="km_driven", ylab="absolute residual")
+```
+
+Based on the residual plot (residual vs expected price/ year/ owner/ km_driven), we can see that nearly all the points lie near the horizontal line when residual equal to 0. 
+Thus, we can conclude that the assumption of linearity, the assumption of constancy of error variance, and the assumption of independence of error terms are not violated. 
+
+Based on the plot of absolute value of residual (residual vs year/ owner/ km_driven), we can see that the error variance is nearly constant. 
+Thus, we can conclude that the assumption of constancy of error variance is not violated. 
+
+### 2. distribution plot of residual
+
++ boxplot of residual
+
+```{r}
+boxplot(e, main="boxplot of residual")
+```
+
++ histogram of residual
+
+```{r}
+hist(e, main="histogram of residual")
+```
+
+Based on the boxplot and histogram of residual, we can see that the median of residuals lie near 0, but there exists several outliers.
+
+### 3. normal probability plot
+
+```{r}
+qqnorm(rstandard(model))
+abline(0,1)
+```
+
+Based on the normal probability plot, we can conclude that the assumption of normality of error terms is not violated, since the graph appears nearly to be a linear line. 
+
+### 4. correlation test for normality
+
+```{r}
+res.order <- sort(e)
+n <- nrow(train)
+mse <- sum(e^2)/(n-2)
+res.exp <- sqrt(mse)*qnorm((1:n-0.375)/(n+0.25))
+cor(res.exp, res.order)
+```
+
+Based on the correlation test for normality, we can conclude that the assumption of normality of error terms is not violated, since the correlation is nearly 1, showing the strong linear relationship. 
+
+```{r}
+plot(res.exp, res.order, main="normal probability plot of the residual", xlab="expected residual", ylab="residual")
+abline(0,1)
+```
+
+The normal probability plot of the residual (the relationship between ordered residual and expected residual) is displayed above.
+
+### 5. Breusch-Pagan test (BP test)
+
+__residual variance model__: log(sigma^2)=r(intercept)+r(year)year+r(owner)owner+r(km_driven)km_driven
+
+__Hypothesis__: 
+H0: r(year)=r(owner)=r(km_driven)=0; Ha: not all r equal to 0. 
+
+__Decision rule__: 
+when BP test statistics > chi-squared(1-$\alpha$,5), reject H0 and conclude Ha; when BP test statistics < chi-squared(1-alpha,5), fail to reject H0 and conclude H0.
+
+```{r}
+library(lmtest)
+bptest(model, studentize=FALSE)
+```
+
+```{r}
+qchisq(0.95, df=5)
+qchisq(0.99, df=5)
+```
+
+__Conclusion__: BP test statistics=233.01 > chi-squared(1-$\alpha$,5) whenever $\alpha$=0.05 or 0.01, so reject H0 and conclude Ha. 
+
+Based on BP test, we can conclude that the assumption of constancy of error variance is violated. 
+
+### 6. F test for lack of fit
+
+__Hypothesis__: 
+$H_0$:E(selling_price)=$\beta$(intercept)+$\beta$(year)year+$\beta$(owner)owner+$\beta$(km_driven)km_driven;
+$H_a$:E(selling_price)!=$\beta$(intercept)+$\beta$(year)year+$\beta$(owner)owner+$\beta$(km_driven)km_driven
+
+__Decision rule__:
+when F statistics > F(1-$\alpha$,736,481), reject H0 and conclude Ha; when F statistics < F(1-alpha,736,481), fail to reject H0 and conclude H0.
+
+```{r}
+sum(duplicated(train[,-c(1,3)]))
+```
+
+Since the duplicated data exists, we can conduct F test for lack of fit. 
+
+```{r}
+reduced = lm(selling_price~year+owner+km_driven, data=train)
+full = lm(selling_price~0+as.factor(year)+as.factor(owner)+as.factor(km_driven), data=train)
+anova(reduced, full)
+```
+
+```{r}
+qf(0.95, df1=736, df=481)
+qf(0.99, df1=736, df=481)
+```
+
+__Conclusion__: F statistics=$1.7534 > F(1-\alpha,736,481)$ whenever $\alpha$=0.05 or 0.01, so reject H0 and conclude Ha. 
+
+Based on F test for lack of fit, we can conclude that the relationship assumed in the model is not reasonable (i.e. there is lack of fit).
+Thus, we can conclude that the assumption of linearity is violated. 
+
+
+
+Part IV: Test Model
+First we take a loot at testing data and the original model:
+
+```{r}
+test$selling_price <- (test$selling_price)^-0.18
+model <- lm(selling_price~year+owner+km_driven, data=train)
+plot(test)
+summary(model)
+plot(model)
+```
+
+Add prediction data into our testing data set:
+```{r}
+test$predicted_value <- predict(model, test)
+head(test)
+test.2 <- subset(test,select = -c(seller_type,selling_price))
+head(test.2)
+```
+
+Comparing exact data and expected data:
+```{r}
+comparison <- data.frame(test$selling_price, test$predicted_value)
+head(comparison)
+```
+
+Calculating Mean Square Prediction Error (MSPE):
+```{r}
+prediction.error <- ((comparison$test.predicted_value - comparison$test.selling_price)^2 / comparison$test.selling_price)
+MSPE <- (sum(prediction.error)/319)
+MSPE
+
+predictions <- predict(model, newdata=test, interval="prediction")
+head(predictions)
+```
+
+Graph: Comparing expected selling price and exact selling price:
+```{r}
+library(ggplot2)
+ggplot(data = comparison)+
+  geom_point(mapping = aes(x = test.selling_price, y = test.predicted_value))+
+  geom_smooth(method = "lm", mapping = aes(x = test.selling_price, y = test.predicted_value))+
+  geom_abline(intercept = 0, slope = 1)
+```
+
+
+
+Obtain the studentized deleted residuals and identify any outlying Y observations. Using Bonferonni outlier test procedure with $\alpha = 0.1$.
+```{r}
+n <- dim(test) [1]
+p <- dim(test) [2]
+critical_value <- qt(1-0.1/(2*n),n-p-1)
+which(rstudent(model)>critical_value) 
+```
+Decision rule: if $|t_i| ≤ t(1 − 0.1/(2n), n − p − 1) = 3.27$, we conclude no outliers. In this case, we do not have outliers.
+
+Obtain the diagonal elements of the hat matrix. Identify any outlying X observations:
+```{r}
+hii = hatvalues(model)
+which(hii > 2*p/n)
+```
+Testing Influences:
+```{r}
+model.test <- lm(predicted_value~year+owner+km_driven, data=test.2)
+COOKS = cooks.distance(model.test)
+DFBETAS = dfbetas(model.test)
+DFFITS = as.numeric(dffits(model.test))
+target = c(1:319)
+Output <- cbind(DFFITS,DFBETAS,COOKS)[target, ]
+head(Output)
+2*sqrt(p/n)
+2/sqrt(n)
+plot(qf(COOKS[target],p, n-p))
+```
+
